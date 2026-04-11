@@ -21,7 +21,8 @@ def train_and_save_model(settings: Settings) -> dict[str, float]:
     )
 
     preprocessor = build_preprocessor(x_train)
-    regressor = RandomForestRegressor(n_estimators=300, random_state=settings.random_state)
+    regressor = RandomForestRegressor(
+        n_estimators=300, random_state=settings.random_state)
 
     model = Pipeline(
         steps=[

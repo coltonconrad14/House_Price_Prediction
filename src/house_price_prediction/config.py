@@ -21,7 +21,7 @@ def load_settings() -> Settings:
     load_dotenv()
 
     return Settings(
-        raw_data_path=Path(os.getenv("RAW_DATA_PATH", "data/raw/housing.csv")),
+        raw_data_path=Path(os.getenv("RAW_DATA_PATH", "data/raw/Housing.csv")),
         target_column=os.getenv("TARGET_COLUMN", "SalePrice"),
         model_path=Path(os.getenv("MODEL_PATH", "models/house_price_model.joblib")),
         test_size=float(os.getenv("TEST_SIZE", "0.2")),
