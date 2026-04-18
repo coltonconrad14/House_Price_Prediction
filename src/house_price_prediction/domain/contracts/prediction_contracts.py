@@ -466,6 +466,7 @@ class HealthResponse(BaseModel):
     feature_policy_name: str
     feature_policy_version: str
     feature_policy_state_override_count: int
+    walkscore_enrichment_active: bool = False
     live_mode_ready: bool
     live_mode_issues: list[str] = Field(default_factory=list)
 

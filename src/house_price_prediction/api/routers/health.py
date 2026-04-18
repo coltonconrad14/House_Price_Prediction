@@ -42,6 +42,7 @@ def get_health(
         feature_policy_name=settings.feature_policy_name,
         feature_policy_version=settings.feature_policy_version,
         feature_policy_state_override_count=len(settings.feature_policy_state_overrides or {}),
+        walkscore_enrichment_active=bool(settings.walkscore_api_key),
         live_mode_ready=len(live_mode_issues) == 0,
         live_mode_issues=live_mode_issues,
     )

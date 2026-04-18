@@ -2,13 +2,15 @@
 
 End-to-end machine learning scaffold for training and serving a house price regression model.
 
+The primary training pipeline now uses live API feature candidates written to JSONL (not CSV).
+
 ## Project Structure
 
 ```text
 .
 ├── data/
-│   ├── raw/                # Place your source CSV here (default: housing.csv)
-│   └── processed/          # Generated prediction inputs/outputs
+│   ├── raw/                # Optional legacy source files
+│   └── processed/          # Live feature store + generated outputs
 ├── models/                 # Trained model artifacts (.joblib)
 ├── notebooks/              # Exploration notebooks
 ├── scripts/
@@ -50,35 +52,54 @@ cp .env.example .env
 
 ## Data Expectations
 
-- Default training file path: `data/raw/housing.csv`
+- Default training file path: `data/processed/live_feature_store.jsonl`
 - Default target column: `SalePrice`
-- Configure via `.env` if your data uses different names
+- Configure via `.env` if your data uses different names or path overrides
 
 Example `.env` values:
 
 ```env
-RAW_DATA_PATH=data/raw/housing.csv
+RAW_DATA_PATH=data/processed/live_feature_store.jsonl
 TARGET_COLUMN=SalePrice
 MODEL_PATH=models/house_price_model.joblib
 TEST_SIZE=0.2
 RANDOM_STATE=42
+TRAINING_MIN_ROWS=25
 ```
 
 ## Train
 
-If you do not have a source CSV yet, generate a synthetic training set first:
+Populate the live feature store from API traffic first:
 
 ```bash
-python scripts/bootstrap_training_data.py
+python scripts/bootstrap_training_data.py --base-url http://127.0.0.1:8000
 ```
 
 ```bash
-python scripts/train.py
+python scripts/train.py --min-rows 25
 ```
 
 Output:
 - model saved at `models/house_price_model.joblib`
 - printed evaluation metrics: MAE, RMSE, R2
+- bootstrap metadata saved at `data/processed/live_feature_store.jsonl.meta.json`
+
+For strict retraining readiness, enforce a minimum extracted row threshold and write timestamped snapshots:
+
+```bash
+python scripts/bootstrap_training_data.py --base-url http://127.0.0.1:8000 --min-output-rows 25 --snapshot-dir data/processed/snapshots
+```
+
+Bootstrap metadata now includes canonicalization diagnostics to support future feature work:
+- `unknown_source_feature_keys`
+- `rows_dropped_missing_required`
+- `rows_with_invalid_target`
+
+You can point Make bootstrap flows at any running API instance:
+
+```bash
+make bootstrap-data-snapshot BOOTSTRAP_BASE_URL=http://127.0.0.1:8004
+```
 
 ## Predict
 
@@ -196,6 +217,8 @@ The default no-key setup now uses free-provider fallbacks:
 ```bash
 make setup
 make bootstrap-data
+make bootstrap-data-snapshot
+make refresh-live-pipeline
 make train
 make predict
 make test

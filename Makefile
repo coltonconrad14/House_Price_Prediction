@@ -1,4 +1,6 @@
-.PHONY: setup bootstrap-data train predict test lint clean smoke-api smoke-real ci-verify export-openapi run-api run-api-live run-dashboard live-address-audit export-live-features
+.PHONY: setup bootstrap-data train predict test lint clean smoke-api smoke-real ci-verify export-openapi run-api run-api-live run-dashboard live-address-audit export-live-features refresh-live-pipeline bootstrap-data-snapshot
+
+BOOTSTRAP_BASE_URL ?= http://127.0.0.1:8000
 
 setup:
 	python -m venv .venv
@@ -6,10 +8,17 @@ setup:
 	. .venv/bin/activate && pip install -e .
 
 train:
-	python scripts/train.py
+	python scripts/train.py --min-rows=25
 
 bootstrap-data:
-	python scripts/bootstrap_training_data.py --base-url=http://127.0.0.1:8000 --output=data/processed/live_feature_store.jsonl --min-completeness-score=0.9 --max-rows=5000
+	python scripts/bootstrap_training_data.py --base-url=$(BOOTSTRAP_BASE_URL) --output=data/processed/live_feature_store.jsonl --metadata-output=data/processed/live_feature_store.jsonl.meta.json --min-completeness-score=0.9 --max-rows=5000 --min-output-rows=1
+
+bootstrap-data-snapshot:
+	python scripts/bootstrap_training_data.py --base-url=$(BOOTSTRAP_BASE_URL) --output=data/processed/live_feature_store.jsonl --metadata-output=data/processed/live_feature_store.jsonl.meta.json --snapshot-dir=data/processed/snapshots --snapshot-prefix=live_feature_store --min-completeness-score=0.9 --max-rows=5000 --min-output-rows=25
+
+refresh-live-pipeline:
+	python scripts/bootstrap_training_data.py --base-url=$(BOOTSTRAP_BASE_URL) --output=data/processed/live_feature_store.jsonl --metadata-output=data/processed/live_feature_store.jsonl.meta.json --snapshot-dir=data/processed/snapshots --snapshot-prefix=live_feature_store --min-completeness-score=0.9 --max-rows=5000 --min-output-rows=25
+	python scripts/train.py --min-rows=25
 
 predict:
 	python scripts/predict.py
@@ -44,7 +53,7 @@ export-openapi:
 
 ci-verify:
 	python scripts/bootstrap_training_data.py
-	python scripts/train.py
+	python scripts/train.py --min-rows=2
 	pytest
 	rm -f data/processed/smoke_validation.db
 	DATABASE_URL=sqlite:///data/processed/smoke_validation.db PREDICTION_REUSE_MAX_AGE_HOURS=0 python scripts/smoke_api.py

@@ -33,6 +33,9 @@ from house_price_prediction.infrastructure.providers.resilient import (
     ResilientGeocodingProvider,
     ResilientPropertyDataProvider,
 )
+from house_price_prediction.infrastructure.providers.walk_score_enrichment_client import (
+    WalkScoreEnrichmentClient,
+)
 
 
 def create_property_data_provider(settings: Settings) -> PropertyDataProvider:
@@ -45,22 +48,28 @@ def create_property_data_provider(settings: Settings) -> PropertyDataProvider:
             max_retries=settings.provider_max_retries,
         )
     if provider_name == "free":
+        census_client: PropertyDataProvider = CensusPropertyDataClient()
+        if settings.walkscore_api_key:
+            census_client = WalkScoreEnrichmentClient(census_client, settings.walkscore_api_key)
         return ResilientPropertyDataProvider(
             provider_name=provider_name,
-            delegate=CensusPropertyDataClient(),
+            delegate=census_client,
             timeout_seconds=settings.provider_timeout_seconds,
             max_retries=settings.provider_max_retries,
         )
     if provider_name == "free-fallback":
+        fallback_chain: PropertyDataProvider = FallbackPropertyDataProvider(
+            providers=(
+                CensusPropertyDataClient(fallback_provider=HeuristicPropertyDataClient()),
+                HeuristicPropertyDataClient(),
+                FakePropertyDataClient(),
+            )
+        )
+        if settings.walkscore_api_key:
+            fallback_chain = WalkScoreEnrichmentClient(fallback_chain, settings.walkscore_api_key)
         return ResilientPropertyDataProvider(
             provider_name=provider_name,
-            delegate=FallbackPropertyDataProvider(
-                providers=(
-                    CensusPropertyDataClient(fallback_provider=HeuristicPropertyDataClient()),
-                    HeuristicPropertyDataClient(),
-                    FakePropertyDataClient(),
-                )
-            ),
+            delegate=fallback_chain,
             timeout_seconds=settings.provider_timeout_seconds,
             max_retries=settings.provider_max_retries,
         )

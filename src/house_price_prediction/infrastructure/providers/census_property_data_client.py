@@ -101,10 +101,28 @@ class CensusPropertyDataClient:
         }
 
     def _fetch_census_context(self, geography: dict[str, str]) -> dict[str, str]:
+        # Core housing variables
+        #   B25077_001E  median home value
+        #   B25035_001E  median year structure built
+        #   B25018_001E  median number of rooms
+        # Extended neighborhood-quality variables
+        #   B19013_001E  median household income
+        #   B25064_001E  median gross rent
+        #   B25003_001E  total housing units (all tenures)
+        #   B25003_002E  owner-occupied housing units
+        #   B25071_001E  gross rent as % of household income (rent-burden)
+        #   B01003_001E  total population
+        acs_fields = (
+            "NAME"
+            ",B25077_001E,B25035_001E,B25018_001E"
+            ",B19013_001E,B25064_001E"
+            ",B25003_001E,B25003_002E"
+            ",B25071_001E,B01003_001E"
+        )
         response = httpx.get(
             self._census_api_base_url,
             params={
-                "get": "NAME,B25077_001E,B25035_001E,B25018_001E",
+                "get": acs_fields,
                 "for": f"tract:{geography['tract']}",
                 "in": f"state:{geography['state']} county:{geography['county']}",
             },
@@ -122,25 +140,73 @@ class CensusPropertyDataClient:
         self,
         census_context: dict[str, str],
         geography: dict[str, str],
-    ) -> dict[str, int | str]:
+    ) -> dict[str, int | float | str | None]:
+        # Core housing signals
         median_home_value = self._safe_int(census_context.get("B25077_001E"))
         median_year_built = self._safe_int(census_context.get("B25035_001E"))
         median_rooms = self._safe_float(census_context.get("B25018_001E"))
 
+        # Extended neighborhood signals
+        median_income = self._safe_int(census_context.get("B19013_001E"))
+        median_rent = self._safe_int(census_context.get("B25064_001E"))
+        total_units = self._safe_int(census_context.get("B25003_001E"))
+        owner_units = self._safe_int(census_context.get("B25003_002E"))
+        rent_burden_pct = self._safe_float(census_context.get("B25071_001E"))
+        tract_population = self._safe_int(census_context.get("B01003_001E"))
+
+        # Derived signals
+        owner_rate: float | None = (
+            owner_units / total_units if total_units and owner_units else None
+        )
+        # Persons-per-unit proxy for density (US avg ~2.5; urban < 2.0; suburban > 3.0)
+        persons_per_unit: float | None = (
+            tract_population / total_units if tract_population and total_units else None
+        )
+
         total_rooms = self._clamp(int(round(median_rooms)) if median_rooms is not None else 6, 4, 11)
         bedrooms = self._clamp(max(total_rooms // 2, 2), 2, 6)
-        overall_qual = self._clamp(
-            5 + int((median_home_value or 200000) / 150000),
-            4,
-            10,
-        )
+
+        # OverallQual: calibrated with both home value AND median income tier
+        value_tier = int((median_home_value or 200000) / 150000)
+        income_tier = int((median_income or 60000) / 75000)
+        overall_qual = self._clamp(4 + value_tier + income_tier, 4, 10)
+
         overall_cond = self._clamp(
             5 + (1 if (median_year_built or 1980) >= 1995 else 0),
             4,
             9,
         )
-        garage_cars = 2 if (median_home_value or 0) >= 250000 else 1
-        lot_area = self._clamp(int((median_home_value or 180000) / 20), 4500, 18000)
+
+        # GarageCars: owner-occupancy rate is a strong predictor of garage availability
+        if owner_rate is not None:
+            if owner_rate >= 0.65:
+                garage_cars = 2          # mostly owners, suburban → 2-car
+            elif owner_rate >= 0.40:
+                garage_cars = 1          # mixed tenure → 1-car
+            else:
+                garage_cars = 1          # mostly renters → shared or 1-car
+        else:
+            garage_cars = 2 if (median_home_value or 0) >= 250000 else 1
+
+        # LotArea: density-adjusted (denser areas = smaller lots)
+        base_lot = self._clamp(int((median_home_value or 180000) / 20), 4500, 18000)
+        if persons_per_unit is not None:
+            if persons_per_unit < 2.0:
+                density_mult = 0.55      # urban / high-turnover tract
+            elif persons_per_unit >= 3.0:
+                density_mult = 1.30      # suburban / family-oriented tract
+            else:
+                density_mult = 1.0
+            lot_area = self._clamp(int(base_lot * density_mult), 2000, 25000)
+        else:
+            lot_area = base_lot
+
+        # GrLivArea: income bonus captures higher-income areas' larger floor plans
+        income_sqft_bonus = int((median_income or 60000) / 1500) if median_income else 0
+        gr_liv_area = self._clamp(total_rooms * 340 + income_sqft_bonus, 900, 3200)
+
+        # HouseStyle: renter-dominated / urban tracts skew to 2-story / multi-unit forms
+        house_style = "2Story" if (owner_rate is not None and owner_rate < 0.45) else "1Story"
 
         return {
             "LotArea": lot_area,
@@ -148,7 +214,7 @@ class CensusPropertyDataClient:
             "OverallCond": overall_cond,
             "YearBuilt": self._clamp(median_year_built or 1985, 1960, 2022),
             "YearRemodAdd": self._clamp((median_year_built or 1985) + 10, 1970, 2024),
-            "GrLivArea": self._clamp(total_rooms * 340, 900, 3200),
+            "GrLivArea": gr_liv_area,
             "FullBath": 2 if total_rooms >= 6 else 1,
             "HalfBath": 1 if total_rooms >= 7 else 0,
             "BedroomAbvGr": bedrooms,
@@ -157,7 +223,13 @@ class CensusPropertyDataClient:
             "GarageCars": garage_cars,
             "GarageArea": garage_cars * 260,
             "Neighborhood": geography["name"].split(",", maxsplit=1)[0],
-            "HouseStyle": "1Story",
+            "HouseStyle": house_style,
+            # Enrichment context — stored for observability, not consumed by the model
+            "census_median_income": median_income,
+            "census_median_rent": median_rent,
+            "census_owner_occupancy_rate": round(owner_rate, 3) if owner_rate is not None else None,
+            "census_rent_burden_pct": rent_burden_pct,
+            "census_tract_population": tract_population,
         }
 
     @staticmethod

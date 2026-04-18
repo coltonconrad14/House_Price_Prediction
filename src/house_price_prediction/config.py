@@ -29,9 +29,11 @@ class Settings:
     provider_timeout_seconds: float
     provider_max_retries: int
     provider_response_cache_max_age_hours: int = 24
+    training_min_rows: int = 0
     feature_policy_name: str = "balanced-v1"
     feature_policy_version: str = "v1"
     feature_policy_state_overrides: dict[str, str] = field(default_factory=dict)
+    walkscore_api_key: str = ""
 
 
 def _get_bool_env(name: str, default: bool) -> bool:
@@ -85,6 +87,7 @@ def load_settings() -> Settings:
         provider_response_cache_max_age_hours=int(
             os.getenv("PROVIDER_RESPONSE_CACHE_MAX_AGE_HOURS", "24")
         ),
+        training_min_rows=int(os.getenv("TRAINING_MIN_ROWS", "0")),
         provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "3.0")),
         provider_max_retries=int(os.getenv("PROVIDER_MAX_RETRIES", "2")),
         feature_policy_name=os.getenv("FEATURE_POLICY_NAME", "balanced-v1"),
@@ -92,4 +95,5 @@ def load_settings() -> Settings:
         feature_policy_state_overrides=_parse_feature_policy_state_overrides(
             os.getenv("FEATURE_POLICY_STATE_OVERRIDES", "")
         ),
+        walkscore_api_key=os.getenv("WALKSCORE_API_KEY", ""),
     )
