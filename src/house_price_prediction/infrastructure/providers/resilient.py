@@ -24,6 +24,14 @@ class ProviderExecutionError(RuntimeError):
         super().__init__(message)
 
 
+class NonRetryableProviderError(RuntimeError):
+    """Raised by providers when the failure is deterministic (e.g. address not found).
+
+    The resilient wrapper will not retry on this error — it immediately wraps it
+    in ProviderExecutionError and surfaces it to the caller.
+    """
+
+
 @dataclass(frozen=True)
 class ResilientPropertyDataProvider:
     provider_name: str
@@ -64,6 +72,16 @@ class ResilientPropertyDataProvider:
                     self.provider_name,
                     f"Provider '{self.provider_name}' timed out after {self.timeout_seconds:.1f}s.",
                 )
+            except NonRetryableProviderError as exc:
+                logger.warning(
+                    "provider_call_no_match provider=%s operation=property_features error=%s",
+                    self.provider_name,
+                    exc,
+                )
+                raise ProviderExecutionError(
+                    self.provider_name,
+                    f"Provider '{self.provider_name}' failed: {exc}",
+                ) from exc
             except Exception as exc:
                 logger.warning(
                     "provider_call_failure provider=%s operation=property_features error=%s",
@@ -116,6 +134,16 @@ class ResilientGeocodingProvider:
                     self.provider_name,
                     f"Provider '{self.provider_name}' timed out after {self.timeout_seconds:.1f}s.",
                 )
+            except NonRetryableProviderError as exc:
+                logger.warning(
+                    "provider_call_no_match provider=%s operation=geocoding error=%s",
+                    self.provider_name,
+                    exc,
+                )
+                raise ProviderExecutionError(
+                    self.provider_name,
+                    f"Provider '{self.provider_name}' failed: {exc}",
+                ) from exc
             except Exception as exc:
                 logger.warning(
                     "provider_call_failure provider=%s operation=geocoding error=%s",

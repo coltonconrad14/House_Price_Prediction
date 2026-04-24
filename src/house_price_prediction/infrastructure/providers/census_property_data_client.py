@@ -9,6 +9,10 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     ProviderResponseContract,
 )
 from house_price_prediction.infrastructure.providers.base import PropertyDataProvider
+from house_price_prediction.infrastructure.providers.property_type_classifier import (
+    classify_property_type,
+)
+from house_price_prediction.infrastructure.providers.resilient import NonRetryableProviderError
 
 
 class CensusPropertyDataClient:
@@ -34,7 +38,7 @@ class CensusPropertyDataClient:
 
         try:
             if normalized_address.latitude is None or normalized_address.longitude is None:
-                raise RuntimeError("Coordinates are required for census context enrichment.")
+                raise NonRetryableProviderError("Coordinates are required for census context enrichment.")
 
             geography = self._lookup_census_tract(
                 latitude=normalized_address.latitude,
@@ -208,7 +212,8 @@ class CensusPropertyDataClient:
         # HouseStyle: renter-dominated / urban tracts skew to 2-story / multi-unit forms
         house_style = "2Story" if (owner_rate is not None and owner_rate < 0.45) else "1Story"
 
-        return {
+        # Build the partial payload so PropertyType classifier can see all signals
+        partial: dict = {
             "LotArea": lot_area,
             "OverallQual": overall_qual,
             "OverallCond": overall_cond,
@@ -224,13 +229,22 @@ class CensusPropertyDataClient:
             "GarageArea": garage_cars * 260,
             "Neighborhood": geography["name"].split(",", maxsplit=1)[0],
             "HouseStyle": house_style,
-            # Enrichment context — stored for observability, not consumed by the model
+            # ── new model features surfaced from census context ──────────
+            "CensusMedianValue": median_home_value,
+            "MedianIncomeK": round(median_income / 1000.0, 1) if median_income else None,
+            "OwnerOccupiedRate": round(owner_rate, 3) if owner_rate is not None else None,
+            # NeighborhoodScore is computed at training/inference time by
+            # NeighborhoodScoreService (KNN); set None so providers don't guess.
+            "NeighborhoodScore": None,
+            # ── enrichment context (observability, not consumed by the model) ──
             "census_median_income": median_income,
             "census_median_rent": median_rent,
             "census_owner_occupancy_rate": round(owner_rate, 3) if owner_rate is not None else None,
             "census_rent_burden_pct": rent_burden_pct,
             "census_tract_population": tract_population,
         }
+        partial["PropertyType"] = classify_property_type(partial)
+        return partial
 
     @staticmethod
     def _build_feature_provenance(

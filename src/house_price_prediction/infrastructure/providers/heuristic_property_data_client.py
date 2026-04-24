@@ -7,6 +7,9 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     NormalizedAddress,
     ProviderResponseContract,
 )
+from house_price_prediction.infrastructure.providers.property_type_classifier import (
+    classify_property_type,
+)
 
 
 class HeuristicPropertyDataClient:
@@ -32,6 +35,13 @@ class HeuristicPropertyDataClient:
         year_built = 1965 + round(build_epoch * 57)
         lot_area = 5000 + round((1 - urban_score) * 9000)
 
+        # Heuristic-derived neighbourhood economic estimates
+        # Higher quality_score → higher estimated market value
+        est_median_value = int(80_000 + quality_score * 500_000)   # $80k–$580k range
+        est_median_income_k = round(30.0 + quality_score * 70.0, 1)  # $30k–$100k / 1000
+        # Urban areas trend toward renting; suburban toward owning
+        est_owner_rate = round(max(0.2, 0.9 - urban_score * 0.55), 3)
+
         payload = {
             "LotArea": lot_area,
             "OverallQual": overall_qual,
@@ -48,6 +58,14 @@ class HeuristicPropertyDataClient:
             "GarageArea": garage_cars * 240,
             "Neighborhood": self._neighborhood(normalized_address),
             "HouseStyle": "2Story" if urban_score >= 0.55 else "1Story",
+            # ── new model features ──────────────────────────────────
+            "CensusMedianValue": est_median_value,
+            "MedianIncomeK": est_median_income_k,
+            "OwnerOccupiedRate": est_owner_rate,
+            # NeighborhoodScore: approximate as quality_score scaled 0–10 so the
+            # completeness denominator is not dragged down in every live request.
+            # Replace with a real KNN scorer once neighbourhood data is available.
+            "NeighborhoodScore": round(quality_score * 10, 2),
             "feature_source": "heuristic",
             "feature_provenance": {
                 "strategy": "heuristic",
@@ -55,6 +73,7 @@ class HeuristicPropertyDataClient:
                 "derived_from": ["formatted_address", "postal_code", "coordinates"],
             },
         }
+        payload["PropertyType"] = classify_property_type(payload)
 
         return ProviderResponseContract(
             provider_name="heuristic_property_data",

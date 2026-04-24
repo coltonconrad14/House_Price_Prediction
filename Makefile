@@ -1,4 +1,4 @@
-.PHONY: setup bootstrap-data train predict test lint clean smoke-api smoke-real ci-verify export-openapi run-api run-api-live run-dashboard live-address-audit export-live-features refresh-live-pipeline bootstrap-data-snapshot
+.PHONY: setup bootstrap-data train predict test lint clean smoke-api smoke-real ci-verify export-openapi run-api run-api-live run-dashboard live-address-audit export-live-features refresh-live-pipeline bootstrap-data-snapshot ingest-csv train-from-csv seed-live
 
 BOOTSTRAP_BASE_URL ?= http://127.0.0.1:8000
 
@@ -66,3 +66,17 @@ lint:
 
 clean:
 	rm -rf .pytest_cache
+
+# ── CSV-based training (real structural features from King County + Ames) ──
+
+ingest-csv:
+	python scripts/ingest_csv_training_data.py
+
+train-from-csv: ingest-csv
+	RAW_DATA_PATH=data/processed/csv_training_data.jsonl python scripts/train.py --min-rows=100
+
+# ── Live seeder (geocoding + census context; heuristic structural features) ──
+
+seed-live:
+	ENABLE_MOCK_PREDICTOR=false GEOCODING_PROVIDER=free-fallback PROPERTY_DATA_PROVIDER=free-fallback \
+	python scripts/seed_live_predictions.py --base-url=$(BOOTSTRAP_BASE_URL)

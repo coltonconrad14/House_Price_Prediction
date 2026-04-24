@@ -9,6 +9,7 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     ProviderResponseContract,
 )
 from datetime import UTC, datetime
+from house_price_prediction.infrastructure.providers.resilient import NonRetryableProviderError
 
 
 class CensusGeocodingClient:
@@ -37,7 +38,7 @@ class CensusGeocodingClient:
         response.raise_for_status()
         matches = response.json().get("result", {}).get("addressMatches", [])
         if not matches:
-            raise RuntimeError("Census geocoder returned no address matches.")
+            raise NonRetryableProviderError("Census geocoder returned no address matches.")
 
         best_match = matches[0]
         coordinates = best_match.get("coordinates", {})

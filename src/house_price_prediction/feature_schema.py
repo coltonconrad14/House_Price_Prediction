@@ -5,6 +5,7 @@ from typing import Any
 
 
 DEFAULT_PREDICTION_FEATURES: tuple[str, ...] = (
+    # ── structural / physical ──────────────────────────────────────────
     "LotArea",
     "OverallQual",
     "OverallCond",
@@ -18,8 +19,15 @@ DEFAULT_PREDICTION_FEATURES: tuple[str, ...] = (
     "Fireplaces",
     "GarageCars",
     "GarageArea",
-    "Neighborhood",
-    "HouseStyle",
+    # ── property classification ────────────────────────────────────────
+    "PropertyType",     # single_family | condo | townhouse | multifamily | luxury
+    "HouseStyle",       # 1Story | 2Story | SFoyer | …
+    # ── neighbourhood / market context ────────────────────────────────
+    "NeighborhoodScore",     # KNN-derived price tier 0-100 (non-circular census signal)
+    "CensusMedianValue",     # ACS B25077 tract median home value (USD)
+    "MedianIncomeK",         # ACS B19013 tract median household income / 1000
+    "OwnerOccupiedRate",     # fraction of owner-occupied units in census tract (0-1)
+    "Neighborhood",          # human-readable neighbourhood / tract label (categorical)
 )
 
 

@@ -88,7 +88,7 @@ def load_settings() -> Settings:
             os.getenv("PROVIDER_RESPONSE_CACHE_MAX_AGE_HOURS", "24")
         ),
         training_min_rows=int(os.getenv("TRAINING_MIN_ROWS", "0")),
-        provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "3.0")),
+        provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "8.0")),
         provider_max_retries=int(os.getenv("PROVIDER_MAX_RETRIES", "2")),
         feature_policy_name=os.getenv("FEATURE_POLICY_NAME", "balanced-v1"),
         feature_policy_version=os.getenv("FEATURE_POLICY_VERSION", "v1"),

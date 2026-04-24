@@ -7,6 +7,9 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     NormalizedAddress,
     ProviderResponseContract,
 )
+from house_price_prediction.infrastructure.providers.property_type_classifier import (
+    classify_property_type,
+)
 
 
 class FakePropertyDataClient:
@@ -35,6 +38,16 @@ class FakePropertyDataClient:
                 ["CollgCr", "NAmes", "OldTown", "Edwards", "Somerst"],
             ),
             "HouseStyle": self._choice(seed, "HouseStyle", ["1Story", "2Story", "SLvl"]),
+            # ── new model features ──────────────────────────────────
+            "CensusMedianValue": self._number(seed, "CensusMedianValue", 80_000, 800_000),
+            "MedianIncomeK": round(
+                30.0 + self._fraction(seed, "MedianIncomeK") * 70.0, 1
+            ),
+            "OwnerOccupiedRate": round(
+                0.25 + self._fraction(seed, "OwnerOccupiedRate") * 0.70, 3
+            ),
+            # NeighborhoodScore is KNN-computed at pipeline time; fake emits None
+            "NeighborhoodScore": None,
             "feature_source": "fake",
             "feature_provenance": {
                 "strategy": "deterministic_fake",
@@ -42,6 +55,7 @@ class FakePropertyDataClient:
                 "seed": normalized_address.formatted_address,
             },
         }
+        payload["PropertyType"] = classify_property_type(payload)
         return ProviderResponseContract(
             provider_name="fake_property_data",
             status="success",
@@ -60,3 +74,9 @@ class FakePropertyDataClient:
         digest = hashlib.sha256(f"{seed}:{name}".encode("utf-8")).hexdigest()
         index = int(digest[:8], 16) % len(values)
         return values[index]
+
+    @staticmethod
+    def _fraction(seed: str, name: str) -> float:
+        """Return a deterministic float in [0.0, 1.0) derived from seed + name."""
+        digest = hashlib.sha256(f"{seed}:{name}".encode("utf-8")).hexdigest()
+        return int(digest[:8], 16) / 0xFFFFFFFF

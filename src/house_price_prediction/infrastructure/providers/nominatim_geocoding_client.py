@@ -10,22 +10,14 @@ from house_price_prediction.domain.contracts.prediction_contracts import (
     NormalizedAddress,
     ProviderResponseContract,
 )
+from house_price_prediction.infrastructure.providers.resilient import NonRetryableProviderError
 
 
 class NominatimGeocodingClient:
     def __init__(self, base_url: str = "https://nominatim.openstreetmap.org") -> None:
         self._base_url = base_url.rstrip("/")
 
-    def normalize(self, address_payload: AddressPayload) -> GeocodingResultContract:
-        address_parts = [
-            address_payload.address_line_1,
-            address_payload.city,
-            address_payload.state,
-            address_payload.postal_code,
-            address_payload.country,
-        ]
-        query = ", ".join(part.strip() for part in address_parts if part)
-
+    def _search(self, query: str) -> list[dict]:
         response = httpx.get(
             f"{self._base_url}/search",
             params={
@@ -37,9 +29,34 @@ class NominatimGeocodingClient:
             headers={"User-Agent": "house-price-prediction-backend/0.1"},
         )
         response.raise_for_status()
-        results = response.json()
+        return response.json()  # type: ignore[no-any-return]
+
+    def normalize(self, address_payload: AddressPayload) -> GeocodingResultContract:
+        full_parts = [
+            address_payload.address_line_1,
+            address_payload.city,
+            address_payload.state,
+            address_payload.postal_code,
+            address_payload.country,
+        ]
+        full_query = ", ".join(part.strip() for part in full_parts if part)
+        results = self._search(full_query)
+
+        # Fallback: drop postal code and retry with city/state/country only to
+        # get at least a city-centroid coordinate when the full query yields nothing.
+        geocoding_source = "nominatim"
         if not results:
-            raise RuntimeError("Nominatim returned no address matches.")
+            fallback_parts = [
+                address_payload.city,
+                address_payload.state,
+                address_payload.country,
+            ]
+            fallback_query = ", ".join(part.strip() for part in fallback_parts if part)
+            results = self._search(fallback_query)
+            geocoding_source = "nominatim_city_fallback"
+
+        if not results:
+            raise NonRetryableProviderError("Nominatim returned no address matches.")
 
         best_match = results[0]
         address = best_match.get("address", {})
@@ -72,7 +89,7 @@ class NominatimGeocodingClient:
             ),
             latitude=float(best_match["lat"]),
             longitude=float(best_match["lon"]),
-            geocoding_source="nominatim",
+            geocoding_source=geocoding_source,
         )
         return GeocodingResultContract(
             normalized_address=normalized_address,
